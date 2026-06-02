@@ -1,0 +1,67 @@
+{
+  "timestamp": "2026-05-25T15:20:44.445678",
+  "pipeline": "hybrid-LSB-DCT-FFT",
+  "status": "working",
+  "total_images": 9,
+  "config": {
+    "image_size": "224",
+    "freq_image_size": "512",
+    "lsb_bits": "1",
+    "dct_block_size": "8",
+    "dct_coefficient": "(4, 3)",
+    "dct_alpha": "8.0",
+    "fft_block_size": "8",
+    "fft_coefficient": "(4, 4)",
+    "fft_strength": "8.0",
+    "ai_threshold": "0.3",
+    "eval_n_images": "3"
+  },
+  "lsb": {
+    "avg_psnr": 71.9371,
+    "avg_mse": 0.004165,
+    "avg_ssim": 1.0,
+    "extraction_accuracy": 1.0
+  },
+  "dct": {
+    "avg_psnr": 53.5086,
+    "avg_mse": 0.289899,
+    "avg_ssim": 0.99993,
+    "extraction_accuracy": 1.0
+  },
+  "fft": {
+    "avg_psnr": 48.1464,
+    "avg_mse": 0.999738,
+    "avg_ssim": 0.999722,
+    "extraction_accuracy": 1.0
+  },
+  "splits": {
+    "train": {
+      "count": 3,
+      "lsb_psnr": 71.9086,
+      "dct_psnr": 53.524,
+      "fft_psnr": 48.234,
+      "lsb_accuracy": 1.0,
+      "dct_accuracy": 1.0,
+      "fft_accuracy": 1.0
+    },
+    "val": {
+      "count": 3,
+      "lsb_psnr": 71.8861,
+      "dct_psnr": 53.5227,
+      "fft_psnr": 48.088,
+      "lsb_accuracy": 1.0,
+      "dct_accuracy": 1.0,
+      "fft_accuracy": 1.0
+    },
+    "test": {
+      "count": 3,
+      "lsb_psnr": 72.0164,
+      "dct_psnr": 53.479,
+      "fft_psnr": 48.1171,
+      "lsb_accuracy": 1.0,
+      "dct_accuracy": 1.0,
+      "fft_accuracy": 1.0
+    }
+  },
+  "note": "Measured round-trip accuracy for LSB (224px), DCT and block-DFT/FFT (512px)."
+}

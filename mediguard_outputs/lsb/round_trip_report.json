@@ -1,0 +1,6 @@
+{
+  "pipeline": "encrypt -> LSB embed -> LSB extract -> decrypt",
+  "timestamp": "2026-05-23T23:10:15.650059",
+  "overall_accuracy": 1.0,
+  "samples_per_split": 5
+}

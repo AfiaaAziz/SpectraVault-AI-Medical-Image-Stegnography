@@ -1,0 +1,17 @@
+medmnist>=2.2.3
+torch>=2.0.0
+torchvision>=0.15.0
+opencv-python>=4.8.0
+matplotlib>=3.7.0
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+pycryptodome>=3.19.0
+scikit-image>=0.21.0
+torchxrayvision>=1.2.0
+Pillow>=10.0.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+PyJWT>=2.8.0
+email-validator>=2.1.0
