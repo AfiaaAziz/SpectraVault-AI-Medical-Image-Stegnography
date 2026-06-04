@@ -111,7 +111,10 @@ Use the **same password** on embed and extract. Images are resized to 224×224 (
 Accounts are stored in **Supabase Auth** (Postgres `auth.users`), not a local JSON file.
 
 1. Create a [Supabase](https://supabase.com) project.
-2. Copy `.env.example` to `.env` and set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (Project Settings → API).
+2. Copy `.env.example` to `.env` and set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (see comments in `.env.example`).
+   ```powershell
+   copy .env.example .env
+   ```
 3. For local dev, disable **Confirm email** under Authentication → Providers → Email.
 4. Restart `run_api.py` and use `/signup` and `/login` in the app.
 
