@@ -6,10 +6,10 @@ import ExtractPage from './pages/ExtractPage.jsx'
 import MetricsPage from './pages/MetricsPage.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import SignupPage from './pages/SignupPage.jsx'
+import { isAuthenticated } from './lib/auth.js'
 
 function ProtectedRoute({ children }) {
-  const isAuth = localStorage.getItem('isAuthenticated')
-  if (!isAuth) {
+  if (!isAuthenticated()) {
     return <Navigate to="/signup" replace />
   }
   return children

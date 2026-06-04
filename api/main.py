@@ -56,11 +56,14 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health():
+    from spectravault.supabase_client import is_supabase_configured
+
     ai = "available" if predict_diseases is not None else "unavailable"
     return {
         "status": "ok",
         "methods": {"LSB": "available", "DCT": "available", "FFT": "available"},
         "ai": ai,
+        "auth": "supabase" if is_supabase_configured() else "not_configured",
     }
 
 
@@ -134,3 +137,18 @@ async def extract(
         return extract_stego(data, password, method=method)
     except EmbedServiceError as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
+
+
+@app.post("/api/signup")
+def signup(body: SignupBody):
+    return signup_user(body)
+
+
+@app.post("/api/login")
+def login(body: LoginBody):
+    return login_user(body)
+
+
+@app.get("/api/me")
+async def me(user: dict = Depends(get_current_user)):
+    return {"user": user}

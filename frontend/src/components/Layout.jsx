@@ -1,6 +1,7 @@
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import DemoBanner from './DemoBanner.jsx'
+import { clearAuth } from '../lib/auth.js'
 import styles from './Layout.module.css'
 
 const NAV_ITEMS = [
@@ -61,7 +62,7 @@ export default function Layout() {
             ))}
             <button 
               onClick={() => {
-                localStorage.removeItem('isAuthenticated')
+                clearAuth()
                 window.location.href = '/login'
               }}
               style={{

@@ -1,26 +1,15 @@
-"""User registration, login, and JWT tokens for the SpectraVault API."""
+"""User registration, login, and JWT validation via Supabase Auth."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-import os
-import re
-import secrets
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
-import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from supabase_auth.errors import AuthApiError
 from pydantic import BaseModel, EmailStr, Field
 
-ROOT = Path(__file__).resolve().parent.parent
-USERS_FILE = ROOT / "data" / "users.json"
-JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_HOURS = 24 * 7
-PBKDF2_ITERATIONS = 100_000
+from spectravault.supabase_client import get_supabase, is_supabase_configured
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -36,134 +25,114 @@ class LoginBody(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
 
 
-def _jwt_secret() -> str:
-    secret = os.environ.get("SPECTRAVAULT_JWT_SECRET", "").strip()
-    if secret:
-        return secret
-    return "spectravault-dev-secret-change-in-production"
-
-
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
-def _hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        PBKDF2_ITERATIONS,
-    )
-    return f"{salt}${digest.hex()}"
-
-
-def _verify_password(password: str, stored: str) -> bool:
-    try:
-        salt, hex_digest = stored.split("$", 1)
-    except ValueError:
-        return False
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        password.encode("utf-8"),
-        salt.encode("utf-8"),
-        PBKDF2_ITERATIONS,
-    )
-    return secrets.compare_digest(digest.hex(), hex_digest)
-
-
-def _load_users() -> dict[str, Any]:
-    if not USERS_FILE.exists():
-        return {"users": []}
-    with open(USERS_FILE, encoding="utf-8") as f:
-        data = json.load(f)
-    if "users" not in data or not isinstance(data["users"], list):
-        return {"users": []}
-    return data
-
-
-def _save_users(data: dict[str, Any]) -> None:
-    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-
-
-def _public_user(record: dict[str, Any]) -> dict[str, Any]:
+def _public_user_from_auth(user: Any) -> dict[str, Any]:
+    meta = getattr(user, "user_metadata", None) or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    created = getattr(user, "created_at", None)
     return {
-        "id": record["id"],
-        "email": record["email"],
-        "full_name": record["full_name"],
-        "created_at": record.get("created_at"),
+        "id": str(user.id),
+        "email": user.email or "",
+        "full_name": meta.get("full_name") or meta.get("name") or "",
+        "created_at": created.isoformat() if hasattr(created, "isoformat") else created,
     }
 
 
-def create_access_token(user_id: str, email: str) -> str:
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": user_id,
-        "email": email,
-        "iat": now,
-        "exp": now + timedelta(hours=JWT_EXPIRE_HOURS),
+def _auth_payload(session: Any, user: Any) -> dict[str, Any]:
+    return {
+        "access_token": session.access_token,
+        "token_type": "bearer",
+        "user": _public_user_from_auth(user),
     }
-    return jwt.encode(payload, _jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict[str, Any]:
-    try:
-        return jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
-    except jwt.ExpiredSignatureError as exc:
-        raise HTTPException(status_code=401, detail="Session expired. Please log in again.") from exc
-    except jwt.InvalidTokenError as exc:
-        raise HTTPException(status_code=401, detail="Invalid or expired token.") from exc
+def _require_supabase() -> None:
+    if not is_supabase_configured():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Supabase is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to .env "
+                "(copy from .env.example)."
+            ),
+        )
+
+
+def _map_auth_error(exc: AuthApiError) -> HTTPException:
+    msg = (getattr(exc, "message", None) or str(exc) or "Authentication failed.").strip()
+    lower = msg.lower()
+    status = getattr(exc, "status", 400)
+    if not isinstance(status, int):
+        status = 400
+
+    if "already" in lower or "already registered" in lower:
+        return HTTPException(status_code=409, detail="An account with this email already exists.")
+    if "invalid login credentials" in lower or "invalid credentials" in lower:
+        return HTTPException(status_code=401, detail="Invalid email or password.")
+    if "email not confirmed" in lower or "confirm your email" in lower:
+        return HTTPException(
+            status_code=403,
+            detail="Please confirm your email before logging in (check your inbox).",
+        )
+    if status == 422:
+        return HTTPException(status_code=400, detail=msg)
+    if status >= 500:
+        return HTTPException(status_code=502, detail="Authentication service error. Try again later.")
+    return HTTPException(status_code=400, detail=msg)
 
 
 def signup_user(body: SignupBody) -> dict[str, Any]:
+    _require_supabase()
     email = _normalize_email(str(body.email))
-    data = _load_users()
-    for user in data["users"]:
-        if user["email"] == email:
-            raise HTTPException(status_code=409, detail="An account with this email already exists.")
+    try:
+        client = get_supabase()
+        response = client.auth.sign_up(
+            {
+                "email": email,
+                "password": body.password,
+                "options": {"data": {"full_name": body.full_name.strip()}},
+            }
+        )
+    except AuthApiError as exc:
+        raise _map_auth_error(exc) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    record = {
-        "id": secrets.token_urlsafe(12),
-        "full_name": body.full_name.strip(),
-        "email": email,
-        "password_hash": _hash_password(body.password),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    data["users"].append(record)
-    _save_users(data)
+    if response.user is None:
+        raise HTTPException(status_code=400, detail="Sign up failed. Please try again.")
 
-    token = create_access_token(record["id"], record["email"])
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "user": _public_user(record),
-    }
+    if response.session is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Account created. Confirm your email before logging in, or disable "
+                "'Confirm email' in Supabase → Authentication → Providers → Email (for local dev)."
+            ),
+        )
+
+    return _auth_payload(response.session, response.user)
 
 
 def login_user(body: LoginBody) -> dict[str, Any]:
+    _require_supabase()
     email = _normalize_email(str(body.email))
-    data = _load_users()
-    for user in data["users"]:
-        if user["email"] == email:
-            if not _verify_password(body.password, user["password_hash"]):
-                break
-            token = create_access_token(user["id"], user["email"])
-            return {
-                "access_token": token,
-                "token_type": "bearer",
-                "user": _public_user(user),
-            }
-    raise HTTPException(status_code=401, detail="Invalid email or password.")
+    try:
+        client = get_supabase()
+        response = client.auth.sign_in_with_password(
+            {"email": email, "password": body.password}
+        )
+    except AuthApiError as exc:
+        raise _map_auth_error(exc) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    if response.session is None or response.user is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
 
-def get_user_by_id(user_id: str) -> dict[str, Any] | None:
-    data = _load_users()
-    for user in data["users"]:
-        if user["id"] == user_id:
-            return user
-    return None
+    return _auth_payload(response.session, response.user)
 
 
 async def get_current_user(
@@ -171,8 +140,15 @@ async def get_current_user(
 ) -> dict[str, Any]:
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(status_code=401, detail="Not authenticated. Please log in.")
-    payload = decode_access_token(credentials.credentials)
-    user = get_user_by_id(payload.get("sub", ""))
-    if user is None:
-        raise HTTPException(status_code=401, detail="User not found.")
-    return _public_user(user)
+    _require_supabase()
+    try:
+        client = get_supabase()
+        response = client.auth.get_user(credentials.credentials)
+    except AuthApiError as exc:
+        raise _map_auth_error(exc) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if response.user is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
+    return _public_user_from_auth(response.user)
